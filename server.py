@@ -107,13 +107,19 @@ def handle_connection(conn, addr):
             elif req_type == "PUBLISH":
                 sid = req.get("session_id")
                 files = req.get("files", [])
+                
+                #Get information about the session
                 with sessions_lock:
                     session = sessions.get(sid)
                 if not session:
                     send_msg(conn, make_reply(req, "PUBLISH-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
                     continue
+
                 hostname = session["host"]
+                ip = session["ip"]
+                p2p_port = session["p2p_port"]
                 updated = 0
+
                 with index_lock:
                     for f in files:
                         fname = f.get("fname")
@@ -121,12 +127,25 @@ def handle_connection(conn, addr):
                         hsh = f.get("hash")
                         if not fname:
                             continue
+
                         if fname not in file_index:
-                            file_index[fname] = {}
-                        file_index[fname][hostname] = {"size": size, "hash": hsh, "last_seen": now_iso()}
-                        updated += 1
+                            file_index[fname] = []
+
+                        replace = False
+                        for entry in file_index[fname]:
+                            if entry["host"] == hostname:
+                                entry.update({"size": size, "hash": hsh, "ip" :ip, "p2p_port":p2p_port, "last_seen": now_iso()})
+                                replace = True
+                                break
+
+                        if not replace:
+                            file_index[fname].append({"host": hostname, "size": size, "hash": hsh, "ip" :ip, "p2p_port":p2p_port,  "last_seen": now_iso()})
+                        
+                        updated += 1   
+
                 send_msg(conn, make_reply(req, "PUBLISH-OK", ok=True, code=200, extra={"accepted": updated}))
                 print(f"[PUBLISH] {hostname} published {updated} files")
+
                 broadcast_event({
                 "event": "PUBLISH",
                 "host": hostname,
@@ -138,79 +157,100 @@ def handle_connection(conn, addr):
             elif req_type == "LOOKUP":
                 sid = req.get("session_id")
                 fname = req.get("fname")
+
                 with sessions_lock:
                     if sid not in sessions:
                         send_msg(conn, make_reply(req, "LOOKUP-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
                         continue
+
                 with index_lock:
-                    owners = file_index.get(fname, {})
-                    peers = []
-                    for host, meta in owners.items():
-                        sid_of_host = hosts.get(host)
-                        session = sessions.get(sid_of_host) if sid_of_host else None
-                        if session:
-                            peers.append({"host": host, "ip": session["ip"], "p2p_port": session["p2p_port"], "size": meta.get("size"), "hash": meta.get("hash")})
+                    peers = file_index.get(fname, [])
+                
+                print(f"[LOOKUP] file={fname} found {len(peers)} peer(s)")
                 send_msg(conn, make_reply(req, "LOOKUP-OK", ok=True, code=200, extra={"peers": peers}))
 
             # DISCOVER
             elif req_type == "DISCOVER":
-                target = req.get("host")
-                sid_of_target = hosts.get(target)
-                files_list = []
+                sid = req.get("session_id")
+                target_host = req.get("host")
+
+                with sessions_lock:
+                    if sid not in sessions:
+                        send_msg(conn, make_reply(req, "DISCOVER-ERROR", ok=False, code=401, extra={"reason": "unknown session"}))
+                        continue  
+
+                result = []
                 with index_lock:
-                    if sid_of_target:
-                        for fname, owners in file_index.items():
-                            meta = owners.get(target)
-                            if meta:
-                                files_list.append({"fname": fname, "size": meta.get("size"), "hash": meta.get("hash"), "last_seen": meta.get("last_seen")})
-                send_msg(conn, make_reply(req, "DISCOVER-OK", ok=True, code=200, extra={"files": files_list}))
+                        for fname, entries in file_index.items():
+                            for entry in entries:
+                                if entry["host"] == target_host:
+                                    result.append({
+                                        "fname": fname,
+                                        "size": entry.get("size"),
+                                        "hash": entry.get("hash")
+                                    }) 
+
+                print(f"[DISCOVER] {target_host} has {len(result)} file(s)")
+                send_msg(conn, make_reply(req, "DISCOVER-OK", ok=True, code=200, extra={"files": result}))
 
             # PING
             elif req_type == "PING":
                 target = req.get("host")
-                sid_of_target = hosts.get(target)
-                if not sid_of_target:
-                    send_msg(conn, make_reply(req, "PING-OK", ok=True, code=404, extra={"alive": False}))
-                else:
-                    sess = sessions.get(sid_of_target)
-                    send_msg(conn, make_reply(req, "PING-OK", ok=True, code=200, extra={"alive": True, "ip": sess["ip"], "p2p_port": sess["p2p_port"], "last_seen": sess["last_seen"]}))
+                alive = False
+                with sessions_lock:
+                    for sid, s in sessions.items():
+                        if s["host"] == target_host:
+                            alive = True
+                            break
 
+                code = 200 if alive else 404
+                print(f"[PING] host={target_host}, alive={alive}")
+                send_msg(conn, make_reply(req, "PING-OK", ok=alive, code=code, extra={"alive": alive}))
             # HEARTBEAT
             elif req_type == "HEARTBEAT":
                 sid = req.get("session_id")
-                load = req.get("load")
                 with sessions_lock:
-                    if sid in sessions:
-                        sessions[sid]["last_seen"] = now_iso()
-                        sessions[sid]["expiry"] = time.time() + sessions[sid]["ttl"]
-                        sessions[sid]["load"] = load
-                        send_msg(conn, make_reply(req, "HEARTBEAT-OK", ok=True, code=200, extra={"ttl": sessions[sid]["ttl"]}))
-                    else:
-                        send_msg(conn, make_reply(req, "HEARTBEAT-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
+                    session = sessions.get(sid)
+                    if not session:
+                        send_msg(conn, make_reply(req, "HEARTBEAT-ERROR", ok=False, code=404, extra={"reason": "unknown session"}))
+                        continue
+                    session["last_seen"] = time.time()
+
+                print(f"[HEARTBEAT] from {session['host']} (sid={sid})")
+                send_msg(conn, make_reply(req, "HEARTBEAT-OK", ok=True, code=200, extra={"ttl": session["ttl"]}))
 
             # LEAVE
             elif req_type == "LEAVE":
                 sid = req.get("session_id")
-                with sessions_lock:
-                    sess = sessions.pop(sid, None)
-                    if sess:
-                        hosts.pop(sess["host"], None)
-                        # remove host entries from index
-                        with index_lock:
-                            for fname, owners in list(file_index.items()):
-                                owners.pop(sess["host"], None)
-                                if not owners:
-                                    file_index.pop(fname, None)
-                        send_msg(conn, make_reply(req, "LEAVE-OK", ok=True, code=200))
-                        print(f"[LEAVE] {sess['host']} left")
-                        broadcast_event({
-    "event": "LEAVE",
-    "host": sess["host"],
-    "time": now_iso()
-})
 
-                    else:
-                        send_msg(conn, make_reply(req, "LEAVE-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
+                with sessions_lock:
+                    session = sessions.pop(sid, None)
+                if not session:
+                    send_msg(conn, make_reply(req, "LEAVE-ERROR", ok=False, code=404, extra={"reason": "unknown session"}))
+                    continue
+
+                hostname = session["host"]
+
+                removed = 0
+                with index_lock:
+                    for fname in list(file_index.keys()):
+                        entries = file_index[fname]
+                        new_entries = [e for e in entries if e["host"] != hostname]
+                        removed += len(entries) - len(new_entries)
+                        if new_entries:
+                            file_index[fname] = new_entries
+                        else:
+                            file_index.pop(fname)
+
+                print(f"[LEAVE] {hostname} left, removed {removed} files")
+
+                send_msg(conn, make_reply(req, "LEAVE-OK", ok=True, code=200, extra={"removed": removed}))
+
+                broadcast_event({
+                    "event": "LEAVE",
+                    "host": hostname,
+                    "time": now_iso()
+                })
 
             else:
                 send_msg(conn, make_reply(req, "ERROR", ok=False, code=400, extra={"reason":"unsupported type"}))
