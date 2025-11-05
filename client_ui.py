@@ -8,58 +8,226 @@ class P2PClientApp:
     def __init__(self, root):
         self.root = root
         self.root.title("P2P File Sharing Client")
-        self.root.geometry("750x500")
+        self.root.geometry("900x650")
+        self.root.configure(bg="#1e1e1e")
         self.client = None
+        
+        # Configure style
+        self.setup_styles()
+        
+        # Main container with padding
+        main_container = tk.Frame(root, bg="#1e1e1e")
+        main_container.pack(fill="both", expand=True, padx=20, pady=20)
 
-        # ========== FRAME CONFIGURATION ==========
-        frame_config = ttk.LabelFrame(root, text="Client Configuration", padding=10)
-        frame_config.pack(fill="x", padx=10, pady=5)
+        # ========== HEADER ==========
+        header = tk.Frame(main_container, bg="#252526")
+        header.pack(fill="x", pady=(0, 15))
+        
+        header_content = tk.Frame(header, bg="#252526")
+        header_content.pack(fill="x", padx=20, pady=15)
+        
+        title_label = tk.Label(header_content, text="P2P FILE SHARING CLIENT", 
+                               font=("Consolas", 16, "bold"), 
+                               bg="#252526", fg="#00ff00")
+        title_label.pack(side="left")
+        
+        status_frame = tk.Frame(header_content, bg="#252526")
+        status_frame.pack(side="right")
+        
+        self.status_label = tk.Label(status_frame, text="[ DISCONNECTED ]", 
+                                     font=("Consolas", 10, "bold"), 
+                                     bg="#252526", fg="#ff4444")
+        self.status_label.pack()
 
-        ttk.Label(frame_config, text="Name:").grid(row=0, column=0, sticky="w")
-        self.name_entry = ttk.Entry(frame_config, width=20)
+        # ========== CLIENT CONFIGURATION ==========
+        config_frame = tk.Frame(main_container, bg="#252526", highlightbackground="#3e3e42", highlightthickness=1)
+        config_frame.pack(fill="x", pady=(0, 15))
+        
+        config_header = tk.Label(config_frame, text="CLIENT CONFIGURATION", 
+                                font=("Consolas", 10, "bold"),
+                                bg="#2d2d30", fg="#cccccc", anchor="w", padx=15, pady=8)
+        config_header.pack(fill="x")
+
+        config_content = tk.Frame(config_frame, bg="#252526", padx=20, pady=20)
+        config_content.pack(fill="x")
+
+        # Name field
+        name_frame = tk.Frame(config_content, bg="#252526")
+        name_frame.pack(side="left", padx=(0, 30))
+        
+        tk.Label(name_frame, text="CLIENT NAME", font=("Consolas", 9), 
+                bg="#252526", fg="#808080").pack(anchor="w")
+        self.name_entry = tk.Entry(name_frame, width=20, font=("Consolas", 10),
+                                   bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
+                                   relief="flat", highlightbackground="#007acc", highlightthickness=1)
         self.name_entry.insert(0, "client1")
-        self.name_entry.grid(row=0, column=1, padx=5)
+        self.name_entry.pack(pady=(5, 0))
 
-        ttk.Label(frame_config, text="P2P Port:").grid(row=0, column=2, sticky="w")
-        self.port_entry = ttk.Entry(frame_config, width=10)
+        # Port field
+        port_frame = tk.Frame(config_content, bg="#252526")
+        port_frame.pack(side="left", padx=(0, 30))
+        
+        tk.Label(port_frame, text="P2P PORT", font=("Consolas", 9), 
+                bg="#252526", fg="#808080").pack(anchor="w")
+        self.port_entry = tk.Entry(port_frame, width=12, font=("Consolas", 10),
+                                   bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
+                                   relief="flat", highlightbackground="#007acc", highlightthickness=1)
         self.port_entry.insert(0, "6001")
-        self.port_entry.grid(row=0, column=3, padx=5)
+        self.port_entry.pack(pady=(5, 0))
 
-        ttk.Button(frame_config, text="Start Client", command=self.start_client).grid(row=0, column=4, padx=10)
+        # Start button
+        self.start_button = tk.Button(config_content, text="START CLIENT", 
+                                     command=self.start_client,
+                                     font=("Consolas", 10, "bold"), 
+                                     bg="#0e639c", fg="#ffffff", 
+                                     activebackground="#1177bb",
+                                     activeforeground="#ffffff",
+                                     relief="flat", padx=30, pady=10,
+                                     cursor="hand2", borderwidth=0)
+        self.start_button.pack(side="left", pady=(18, 0))
 
-        # ========== FRAME ACTIONS ==========
-        frame_actions = ttk.LabelFrame(root, text="Actions", padding=10)
-        frame_actions.pack(fill="x", padx=10, pady=5)
+        # ========== FILE OPERATIONS ==========
+        file_ops_frame = tk.Frame(main_container, bg="#252526", highlightbackground="#3e3e42", highlightthickness=1)
+        file_ops_frame.pack(fill="x", pady=(0, 15))
+        
+        file_ops_header = tk.Label(file_ops_frame, text="FILE OPERATIONS", 
+                                   font=("Consolas", 10, "bold"),
+                                   bg="#2d2d30", fg="#cccccc", anchor="w", padx=15, pady=8)
+        file_ops_header.pack(fill="x")
 
-        ttk.Button(frame_actions, text="Publish File", command=self.publish_file).grid(row=0, column=0, padx=5)
+        file_ops_content = tk.Frame(file_ops_frame, bg="#252526", padx=20, pady=20)
+        file_ops_content.pack(fill="x")
 
-        ttk.Label(frame_actions, text="File name:").grid(row=0, column=1, padx=(15, 5))
-        self.filename_entry = ttk.Entry(frame_actions, width=20)
-        self.filename_entry.grid(row=0, column=2)
+        # Publish button
+        self.publish_btn = tk.Button(file_ops_content, text="PUBLISH FILE", 
+                                     command=self.publish_file,
+                                     font=("Consolas", 9, "bold"), 
+                                     bg="#16825d", fg="#ffffff",
+                                     activebackground="#1a9870",
+                                     activeforeground="#ffffff",
+                                     relief="flat", padx=20, pady=8,
+                                     cursor="hand2", borderwidth=0, width=15)
+        self.publish_btn.pack(side="left", padx=(0, 30))
 
-        ttk.Button(frame_actions, text="Lookup", command=self.lookup_file).grid(row=0, column=3, padx=5)
+        # Lookup section
+        lookup_frame = tk.Frame(file_ops_content, bg="#252526")
+        lookup_frame.pack(side="left")
+        
+        tk.Label(lookup_frame, text="FILENAME", font=("Consolas", 9), 
+                bg="#252526", fg="#808080").pack(side="left", padx=(0, 10))
+        self.filename_entry = tk.Entry(lookup_frame, width=25, font=("Consolas", 10),
+                                       bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
+                                       relief="flat", highlightbackground="#007acc", highlightthickness=1)
+        self.filename_entry.pack(side="left", padx=(0, 15))
+        
+        self.lookup_btn = tk.Button(lookup_frame, text="LOOKUP", 
+                                    command=self.lookup_file,
+                                    font=("Consolas", 9, "bold"), 
+                                    bg="#6e4c9e", fg="#ffffff",
+                                    activebackground="#7f5db0",
+                                    activeforeground="#ffffff",
+                                    relief="flat", padx=20, pady=8,
+                                    cursor="hand2", borderwidth=0, width=12)
+        self.lookup_btn.pack(side="left")
 
-        ttk.Label(frame_actions, text="Host:").grid(row=0, column=4, padx=(15, 5))
-        self.host_entry = ttk.Entry(frame_actions, width=15)
-        self.host_entry.grid(row=0, column=5)
+        # ========== PEER OPERATIONS ==========
+        peer_ops_frame = tk.Frame(main_container, bg="#252526", highlightbackground="#3e3e42", highlightthickness=1)
+        peer_ops_frame.pack(fill="x", pady=(0, 15))
+        
+        peer_ops_header = tk.Label(peer_ops_frame, text="PEER OPERATIONS", 
+                                   font=("Consolas", 10, "bold"),
+                                   bg="#2d2d30", fg="#cccccc", anchor="w", padx=15, pady=8)
+        peer_ops_header.pack(fill="x")
 
-        ttk.Button(frame_actions, text="Discover", command=self.discover_host).grid(row=0, column=6, padx=5)
-        ttk.Button(frame_actions, text="Ping", command=self.ping_host).grid(row=0, column=7, padx=5)
-        ttk.Button(frame_actions, text="Leave", command=self.leave_server).grid(row=0, column=8, padx=5)
+        peer_ops_content = tk.Frame(peer_ops_frame, bg="#252526", padx=20, pady=20)
+        peer_ops_content.pack(fill="x")
+        
+        # Host entry
+        host_frame = tk.Frame(peer_ops_content, bg="#252526")
+        host_frame.pack(side="left", padx=(0, 20))
+        
+        tk.Label(host_frame, text="HOSTNAME", font=("Consolas", 9), 
+                bg="#252526", fg="#808080").pack(side="left", padx=(0, 10))
+        self.host_entry = tk.Entry(host_frame, width=20, font=("Consolas", 10),
+                                   bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
+                                   relief="flat", highlightbackground="#007acc", highlightthickness=1)
+        self.host_entry.pack(side="left")
 
-        # ========== FRAME LOG ==========
-        frame_log = ttk.LabelFrame(root, text="Activity Log", padding=10)
-        frame_log.pack(fill="both", expand=True, padx=10, pady=5)
+        # Operation buttons
+        button_config = [
+            ("DISCOVER", self.discover_host, "#0e7490"),
+            ("PING", self.ping_host, "#b45309"),
+            ("LEAVE", self.leave_server, "#b91c1c")
+        ]
 
-        self.log_text = tk.Text(frame_log, wrap="word", bg="#1e1e1e", fg="#dcdcdc", font=("Consolas", 10))
-        self.log_text.pack(fill="both", expand=True)
+        for text, cmd, color in button_config:
+            btn = tk.Button(peer_ops_content, text=text, command=cmd,
+                          font=("Consolas", 9, "bold"), 
+                          bg=color, fg="#ffffff",
+                          activebackground=self.darken_color(color),
+                          activeforeground="#ffffff",
+                          relief="flat", padx=20, pady=8,
+                          cursor="hand2", borderwidth=0, width=12)
+            btn.pack(side="left", padx=(0, 10))
 
-        self.log("[00:00:00] Ready. Configure and click 'Start Client' to begin.")
+        # ========== ACTIVITY LOG ==========
+        log_frame = tk.Frame(main_container, bg="#252526", highlightbackground="#3e3e42", highlightthickness=1)
+        log_frame.pack(fill="both", expand=True)
+        
+        log_header = tk.Label(log_frame, text="ACTIVITY LOG", 
+                             font=("Consolas", 10, "bold"),
+                             bg="#2d2d30", fg="#cccccc", anchor="w", padx=15, pady=8)
+        log_header.pack(fill="x")
+
+        log_content = tk.Frame(log_frame, bg="#1e1e1e", padx=15, pady=15)
+        log_content.pack(fill="both", expand=True)
+        
+        # Log text with scrollbar
+        scrollbar = tk.Scrollbar(log_content, bg="#3e3e42")
+        scrollbar.pack(side="right", fill="y")
+        
+        self.log_text = tk.Text(log_content, wrap="word", 
+                               bg="#0c0c0c", fg="#00ff00", 
+                               font=("Consolas", 10),
+                               padx=15, pady=15,
+                               relief="flat",
+                               insertbackground="#00ff00",
+                               yscrollcommand=scrollbar.set)
+        self.log_text.pack(side="left", fill="both", expand=True)
+        scrollbar.config(command=self.log_text.yview)
+        
+        # Configure text tags for colored output
+        self.log_text.tag_config("success", foreground="#00ff00")
+        self.log_text.tag_config("error", foreground="#ff4444")
+        self.log_text.tag_config("info", foreground="#00aaff")
+        self.log_text.tag_config("warning", foreground="#ffaa00")
+        self.log_text.tag_config("default", foreground="#00ff00")
+
+        self.log("[SYSTEM] Ready. Configure and click 'START CLIENT' to begin.", "success")
+
+    def setup_styles(self):
+        """Configure ttk styles for modern look."""
+        style = ttk.Style()
+        style.theme_use('clam')
+
+    def darken_color(self, hex_color):
+        """Darken a hex color by 15%."""
+        hex_color = hex_color.lstrip('#')
+        rgb = tuple(int(hex_color[i:i+2], 16) for i in (0, 2, 4))
+        darker = tuple(max(0, int(c * 0.85)) for c in rgb)
+        return f"#{darker[0]:02x}{darker[1]:02x}{darker[2]:02x}"
+
+    def update_status(self, connected):
+        """Update connection status indicator."""
+        if connected:
+            self.status_label.config(text="[ CONNECTED ]", fg="#00ff00")
+        else:
+            self.status_label.config(text="[ DISCONNECTED ]", fg="#ff4444")
 
     # ========== LOG HANDLING ==========
-    def log(self, message):
-        """Append a log message to text box."""
-        self.log_text.insert("end", message + "\n")
+    def log(self, message, tag="default"):
+        """Append a log message to text box with optional tag."""
+        self.log_text.insert("end", message + "\n", tag)
         self.log_text.see("end")
 
     # ========== CLIENT STARTUP ==========
@@ -78,9 +246,12 @@ class P2PClientApp:
             self.client.start_peer_listener()
             self.client.connect_server()
             self.client.start_listen_events()
-            self.log(f"Registered with session_id={self.client.session_id}")
+            self.log(f"[SYSTEM] Registered with session_id={self.client.session_id}", "success")
+            self.update_status(True)
+            self.start_button.config(state="disabled", bg="#555555")
         except Exception as e:
-            self.log(f"Connection error: {e}")
+            self.log(f"[ERROR] Connection error: {e}", "error")
+            self.update_status(False)
 
     # ========== ACTION HANDLERS ==========
     def publish_file(self):
@@ -94,7 +265,7 @@ class P2PClientApp:
         size = os.path.getsize(path)
         meta = [{"fname": fname, "size": size}]
         self.client.publish(meta)
-        self.log(f"Published {fname} ({size} bytes).")
+        self.log(f"[PUBLISH] {fname} ({size} bytes)", "success")
 
     def lookup_file(self):
         if not self.client:
@@ -104,15 +275,15 @@ class P2PClientApp:
         if not fname:
             messagebox.showwarning("Warning", "Enter file name to lookup.")
             return
-        self.log(f"Looking up {fname} ...")
+        self.log(f"[LOOKUP] Searching for {fname} ...", "info")
         reply = self.client.lookup(fname)
         peers = reply.get("peers", [])
         if peers:
-            self.log(f"Found {len(peers)} peer(s) for {fname}:")
+            self.log(f"[LOOKUP] Found {len(peers)} peer(s) for {fname}:", "success")
             for p in peers:
-                self.log(f"   • {p['host']} ({p['ip']}:{p['p2p_port']})")
+                self.log(f"         > {p['host']} ({p['ip']}:{p['p2p_port']})", "info")
         else:
-            self.log("No peers found for this file.")
+            self.log("[LOOKUP] No peers found for this file.", "warning")
 
     def discover_host(self):
         if not self.client:
@@ -122,13 +293,13 @@ class P2PClientApp:
         if not host:
             messagebox.showwarning("Warning", "Enter host name to discover.")
             return
-        self.log(f"Discovering {host} ...")
+        self.log(f"[DISCOVER] Querying {host} ...", "info")
         reply = self.client.discover(host)
         files = reply.get("files", [])
         if files:
-            self.log(f"{host} has {len(files)} file(s): {[f['fname'] for f in files]}")
+            self.log(f"[DISCOVER] {host} has {len(files)} file(s): {[f['fname'] for f in files]}", "success")
         else:
-            self.log(f"No files found for host {host}.")
+            self.log(f"[DISCOVER] No files found for host {host}.", "warning")
 
     def ping_host(self):
         if not self.client:
@@ -138,19 +309,20 @@ class P2PClientApp:
         if not host:
             messagebox.showwarning("Warning", "Enter host name to ping.")
             return
-        self.log(f"Pinging {host} ...")
+        self.log(f"[PING] Testing connection to {host} ...", "info")
         reply = self.client.ping(host)
         if reply.get("ok"):
             alive = reply.get("alive", True)
-            self.log(f"Host {host} alive={alive}")
+            self.log(f"[PING] Host {host} alive={alive}", "success")
         else:
-            self.log(f"Ping failed: {reply}")
+            self.log(f"[PING] Failed: {reply}", "error")
 
     def leave_server(self):
         if not self.client:
             return
-        self.log("Leaving server ...")
+        self.log("[SYSTEM] Disconnecting from server ...", "warning")
         self.client.leave()
+        self.update_status(False)
         messagebox.showinfo("Exit", "Client disconnected.")
         self.root.quit()
 
