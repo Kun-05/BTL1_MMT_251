@@ -1,7 +1,3 @@
-# protocol.py
-# Helper functions for JSON Lines control protocol (C <-> S).
-# Messages are JSON objects, encoded in UTF-8, terminated by "\r\n".
-
 import json
 from datetime import datetime, timezone
 
