@@ -11,6 +11,7 @@ class P2PClientApp:
         self.root.geometry("900x650")
         self.root.configure(bg="#1e1e1e")
         self.client = None
+        self.last_lookup_peers = []  # Store peers from last lookup
         
         # Configure style
         self.setup_styles()
@@ -128,7 +129,17 @@ class P2PClientApp:
                                     activeforeground="#ffffff",
                                     relief="flat", padx=20, pady=8,
                                     cursor="hand2", borderwidth=0, width=12)
-        self.lookup_btn.pack(side="left")
+        self.lookup_btn.pack(side="left", padx=(0, 10))
+        
+        self.download_btn = tk.Button(lookup_frame, text="DOWNLOAD", 
+                                      command=self.download_file,
+                                      font=("Consolas", 9, "bold"), 
+                                      bg="#0e639c", fg="#ffffff",
+                                      activebackground="#1177bb",
+                                      activeforeground="#ffffff",
+                                      relief="flat", padx=20, pady=8,
+                                      cursor="hand2", borderwidth=0, width=12)
+        self.download_btn.pack(side="left")
 
         # ========== PEER OPERATIONS ==========
         peer_ops_frame = tk.Frame(main_container, bg="#252526", highlightbackground="#3e3e42", highlightthickness=1)
@@ -279,11 +290,34 @@ class P2PClientApp:
         reply = self.client.lookup(fname)
         peers = reply.get("peers", [])
         if peers:
+            self.last_lookup_peers = peers  # Store for download
             self.log(f"[LOOKUP] Found {len(peers)} peer(s) for {fname}:", "success")
             for p in peers:
                 self.log(f"         > {p['host']} ({p['ip']}:{p['p2p_port']})", "info")
         else:
+            self.last_lookup_peers = []
             self.log("[LOOKUP] No peers found for this file.", "warning")
+
+    def download_file(self):
+        if not self.client:
+            messagebox.showerror("Error", "Client not started.")
+            return
+        fname = self.filename_entry.get().strip()
+        if not fname:
+            messagebox.showwarning("Warning", "Enter file name to download.")
+            return
+        if not self.last_lookup_peers:
+            messagebox.showwarning("Warning", "Please lookup the file first.")
+            return
+        
+        # Download from first peer
+        first_peer = self.last_lookup_peers[0]
+        self.log(f"[FETCH] Downloading from {first_peer['host']} ...", "info")
+        try:
+            self.client.fetch_from_peer(first_peer["ip"], first_peer["p2p_port"], fname)
+            self.log(f"[FETCH] Downloaded {fname} from {first_peer['host']}", "success")
+        except Exception as e:
+            self.log(f"[FETCH] Download failed: {e}", "error")
 
     def discover_host(self):
         if not self.client:
