@@ -2,6 +2,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import threading
 import os
+import shutil
 from client import P2PClient
 
 class P2PClientApp:
@@ -215,6 +216,7 @@ class P2PClientApp:
         self.log_text.tag_config("default", foreground="#00ff00")
 
         self.log("[SYSTEM] Ready. Configure and click 'START CLIENT' to begin.", "success")
+        self.root.protocol("WM_DELETE_WINDOW", self.leave_server) # Handle window close
 
     def setup_styles(self):
         """Configure ttk styles for modern look."""
@@ -238,55 +240,96 @@ class P2PClientApp:
     # ========== LOG HANDLING ==========
     def log(self, message, tag="default"):
         """Append a log message to text box with optional tag."""
+        if not tag in self.log_text.tag_names():
+            tag = "default"
         self.log_text.insert("end", message + "\n", tag)
         self.log_text.see("end")
 
     # ========== CLIENT STARTUP ==========
     def start_client(self):
         name = self.name_entry.get().strip()
-        port = int(self.port_entry.get().strip())
+        port_str = self.port_entry.get().strip()
         if not name:
             messagebox.showwarning("Warning", "Please enter client name.")
             return
+        try:
+            port = int(port_str)
+        except ValueError:
+            messagebox.showwarning("Warning", "P2P Port must be a number.")
+            return
+
         self.client = P2PClient(name, port)
         self.client.log_callback = self.log
         threading.Thread(target=self._start_client_thread, daemon=True).start()
 
     def _start_client_thread(self):
         try:
+            self.log("[SYSTEM] Starting P2P listener...", "info")
             self.client.start_peer_listener()
+            
+            self.log("[SYSTEM] Connecting to server...", "info")
             self.client.connect_server()
-            self.client.start_listen_events()
-            self.log(f"[SYSTEM] Registered with session_id={self.client.session_id}", "success")
+            
+            # CRITICAL: Start the receiver loop *after* connect_server
+            self.log("[SYSTEM] Starting message receiver...", "info")
+            self.client.start_message_receiver() 
+            
+            # self.log(f"[SYSTEM] Connected successfully (session_id={self.client.session_id})", "success") # Logged by connect_server
+            self.log(f"[SYSTEM] Repo directory: {self.client.repo_dir}", "info")
             self.update_status(True)
             self.start_button.config(state="disabled", bg="#555555")
+            
+        except ConnectionError as e:
+            self.log(f"[ERROR] Connection failed: {e}", "error")
+            self.update_status(False)
         except Exception as e:
-            self.log(f"[ERROR] Connection error: {e}", "error")
+            self.log(f"[ERROR] Startup error: {e}", "error")
             self.update_status(False)
 
     # ========== ACTION HANDLERS ==========
     def publish_file(self):
-        if not self.client:
-            messagebox.showerror("Error", "Client not started.")
+        if not self.client or not self.client.running:
+            messagebox.showerror("Error", "Client not connected.")
             return
+        
+        # Select file from anywhere
         path = filedialog.askopenfilename(title="Select File to Publish")
         if not path:
             return
+        
         fname = os.path.basename(path)
         size = os.path.getsize(path)
+        
+        # Copy file to repo directory
+        dest_path = os.path.join(self.client.repo_dir, fname)
+        try:
+            shutil.copy2(path, dest_path)
+            self.log(f"[FILE] Copied {fname} to repo directory", "info")
+        except Exception as e:
+            self.log(f"[ERROR] Failed to copy file: {e}", "error")
+            messagebox.showerror("Error", f"Failed to copy file: {e}")
+            return
+        
+        # Publish metadata to server
         meta = [{"fname": fname, "size": size}]
-        self.client.publish(meta)
-        self.log(f"[PUBLISH] {fname} ({size} bytes)", "success")
+        # Run in a thread to not block UI
+        threading.Thread(target=self.client.publish, args=(meta,), daemon=True).start()
+        self.log(f"[PUBLISH] Sending request for {fname} ({size} bytes)...", "info")
 
     def lookup_file(self):
-        if not self.client:
-            messagebox.showerror("Error", "Client not started.")
+        if not self.client or not self.client.running:
+            messagebox.showerror("Error", "Client not connected.")
             return
         fname = self.filename_entry.get().strip()
         if not fname:
             messagebox.showwarning("Warning", "Enter file name to lookup.")
             return
+            
         self.log(f"[LOOKUP] Searching for {fname} ...", "info")
+        # Run in a thread to not block UI
+        threading.Thread(target=self._lookup_thread, args=(fname,), daemon=True).start()
+
+    def _lookup_thread(self, fname):
         reply = self.client.lookup(fname)
         peers = reply.get("peers", [])
         if peers:
@@ -299,8 +342,8 @@ class P2PClientApp:
             self.log("[LOOKUP] No peers found for this file.", "warning")
 
     def download_file(self):
-        if not self.client:
-            messagebox.showerror("Error", "Client not started.")
+        if not self.client or not self.client.running:
+            messagebox.showerror("Error", "Client not connected.")
             return
         fname = self.filename_entry.get().strip()
         if not fname:
@@ -312,38 +355,58 @@ class P2PClientApp:
         
         # Download from first peer
         first_peer = self.last_lookup_peers[0]
-        self.log(f"[FETCH] Downloading from {first_peer['host']} ...", "info")
+        self.log(f"[FETCH] Downloading '{fname}' from {first_peer['host']} ({first_peer['ip']}:{first_peer['p2p_port']}) ...", "info")
+        
+        # Run in a thread to not block UI
+        threading.Thread(target=self._download_thread, args=(first_peer, fname), daemon=True).start()
+
+    def _download_thread(self, peer, fname):
         try:
-            self.client.fetch_from_peer(first_peer["ip"], first_peer["p2p_port"], fname)
-            self.log(f"[FETCH] Downloaded {fname} from {first_peer['host']}", "success")
+            success = self.client.fetch_from_peer(peer["ip"], peer["p2p_port"], fname)
+            if success:
+                self.log(f"[FETCH] ✓ Successfully downloaded '{fname}'", "success")
+                self.log(f"[FETCH] Saved to: {os.path.join(self.client.repo_dir, fname)}", "info")
+            else:
+                self.log(f"[FETCH] ✗ Failed to download '{fname}'", "error")
+                self.log(f"[FETCH] Make sure the filename is correct and the peer has the file", "warning")
         except Exception as e:
-            self.log(f"[FETCH] Download failed: {e}", "error")
+            self.log(f"[FETCH] ✗ Download error: {e}", "error")
 
     def discover_host(self):
-        if not self.client:
-            messagebox.showerror("Error", "Client not started.")
+        if not self.client or not self.client.running:
+            messagebox.showerror("Error", "Client not connected.")
             return
         host = self.host_entry.get().strip()
         if not host:
             messagebox.showwarning("Warning", "Enter host name to discover.")
             return
         self.log(f"[DISCOVER] Querying {host} ...", "info")
+        # Run in a thread
+        threading.Thread(target=self._discover_thread, args=(host,), daemon=True).start()
+
+    def _discover_thread(self, host):
         reply = self.client.discover(host)
         files = reply.get("files", [])
         if files:
-            self.log(f"[DISCOVER] {host} has {len(files)} file(s): {[f['fname'] for f in files]}", "success")
+            self.log(f"[DISCOVER] {host} has {len(files)} file(s):", "success")
+            for f in files:
+                self.log(f"         > {f['fname']} ({f.get('size', 0)} bytes)", "info")
         else:
             self.log(f"[DISCOVER] No files found for host {host}.", "warning")
 
     def ping_host(self):
-        if not self.client:
-            messagebox.showerror("Error", "Client not started.")
+        if not self.client or not self.client.running:
+            messagebox.showerror("Error", "Client not connected.")
             return
         host = self.host_entry.get().strip()
         if not host:
             messagebox.showwarning("Warning", "Enter host name to ping.")
             return
         self.log(f"[PING] Testing connection to {host} ...", "info")
+        # Run in a thread
+        threading.Thread(target=self._ping_thread, args=(host,), daemon=True).start()
+
+    def _ping_thread(self, host):
         reply = self.client.ping(host)
         if reply.get("ok"):
             alive = reply.get("alive", True)
@@ -352,12 +415,11 @@ class P2PClientApp:
             self.log(f"[PING] Failed: {reply}", "error")
 
     def leave_server(self):
-        if not self.client:
-            return
-        self.log("[SYSTEM] Disconnecting from server ...", "warning")
-        self.client.leave()
-        self.update_status(False)
-        messagebox.showinfo("Exit", "Client disconnected.")
+        if self.client:
+            self.log("[SYSTEM] Disconnecting from server ...", "warning")
+            # Run leave in a thread to avoid blocking UI on exit
+            threading.Thread(target=self.client.leave, daemon=True).start()
+            self.update_status(False)
         self.root.quit()
 
 

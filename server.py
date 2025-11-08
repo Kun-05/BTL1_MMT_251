@@ -7,7 +7,7 @@ import threading
 import json
 import time
 import itertools
-from utils import recv_msg, send_msg, make_reply, now_iso
+from utils import send_msg, make_reply, now_iso, BufferedConnection # CHANGED
 
 SERVER_HOST = "0.0.0.0"
 SERVER_PORT = 5050
@@ -27,7 +27,7 @@ DEFAULT_TTL = 60  # seconds
 CLEANUP_INTERVAL = 10  # seconds
 
 #Global variables
-client_conn = set()
+client_conn = set() # This will now store BufferedConnection objects
 conn_lock = threading.Lock()
 
 def broadcast_event(event_obj):
@@ -35,11 +35,12 @@ def broadcast_event(event_obj):
     global client_conn, conn_lock
     with conn_lock:
         dead = []
-        for c in list(client_conn):
+        for b_conn in list(client_conn): # b_conn is a BufferedConnection
             try:
-                send_msg(c, event_obj)
+                if not b_conn.send_msg(event_obj): # CHANGED
+                    dead.append(b_conn)
             except:
-                dead.append(c)
+                dead.append(b_conn)
         for d in dead:
             client_conn.discard(d)
 
@@ -64,20 +65,23 @@ def cleanup_stale_sessions():
                 print(f"[CLEANUP] removed expired session {sid} ({host})")
         time.sleep(CLEANUP_INTERVAL)
 
-def handle_connection(conn, addr):
+def handle_connection(conn, addr): # conn is still the raw socket from accept()
     """
     Each client connection handles control-plane JSON requests synchronously.
     """
     global client_conn, conn_lock
+    b_conn = BufferedConnection(conn) # <--- Wrap the socket
+
     try:
         with conn_lock:
-            client_conn.add(conn)
+            client_conn.add(b_conn) # <--- Add the wrapper
         while True:
-            req = recv_msg(conn)
+            req = b_conn.recv_msg() # <--- CHANGED
             if req is None:
                 break
             req_type = req.get("type", "").upper()
             cseq = req.get("cseq", 0)
+            
             # REGISTER
             if req_type == "REGISTER":
                 host_info = req.get("host", {})
@@ -86,7 +90,7 @@ def handle_connection(conn, addr):
                 p2p_port = host_info.get("p2p_port")
                 if not name or not p2p_port:
                     reply = make_reply(req, "REGISTER-ERROR", ok=False, code=400, extra={"reason":"missing fields"})
-                    send_msg(conn, reply)
+                    b_conn.send_msg(reply) # <--- CHANGED
                     continue
                 with sessions_lock:
                     sid = next(_next_session)
@@ -94,7 +98,7 @@ def handle_connection(conn, addr):
                     sessions[sid] = {"host":name, "ip":ip, "p2p_port":p2p_port, "last_seen": now_iso(), "expiry": expiry, "ttl": DEFAULT_TTL}
                     hosts[name] = sid
                 reply = make_reply(req, "REGISTER-OK", ok=True, code=200, extra={"session_id": sid, "ttl": DEFAULT_TTL})
-                send_msg(conn, reply)
+                b_conn.send_msg(reply) # <--- CHANGED
                 print(f"[REGISTER] {name} @ {ip}:{p2p_port} sid={sid}")
                 broadcast_event({
                     "event": "NEW_CLIENT",
@@ -112,7 +116,7 @@ def handle_connection(conn, addr):
                 with sessions_lock:
                     session = sessions.get(sid)
                 if not session:
-                    send_msg(conn, make_reply(req, "PUBLISH-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
+                    b_conn.send_msg(make_reply(req, "PUBLISH-ERROR", ok=False, code=401, extra={"reason":"unknown session"})) # <--- CHANGED
                     continue
 
                 hostname = session["host"]
@@ -143,7 +147,7 @@ def handle_connection(conn, addr):
                         
                         updated += 1   
 
-                send_msg(conn, make_reply(req, "PUBLISH-OK", ok=True, code=200, extra={"accepted": updated}))
+                b_conn.send_msg(make_reply(req, "PUBLISH-OK", ok=True, code=200, extra={"accepted": updated})) # <--- CHANGED
                 print(f"[PUBLISH] {hostname} published {updated} files")
 
                 broadcast_event({
@@ -160,14 +164,14 @@ def handle_connection(conn, addr):
 
                 with sessions_lock:
                     if sid not in sessions:
-                        send_msg(conn, make_reply(req, "LOOKUP-ERROR", ok=False, code=401, extra={"reason":"unknown session"}))
+                        b_conn.send_msg(make_reply(req, "LOOKUP-ERROR", ok=False, code=401, extra={"reason":"unknown session"})) # <--- CHANGED
                         continue
 
                 with index_lock:
                     peers = file_index.get(fname, [])
                 
                 print(f"[LOOKUP] file={fname} found {len(peers)} peer(s)")
-                send_msg(conn, make_reply(req, "LOOKUP-OK", ok=True, code=200, extra={"peers": peers}))
+                b_conn.send_msg(make_reply(req, "LOOKUP-OK", ok=True, code=200, extra={"peers": peers})) # <--- CHANGED
 
             # DISCOVER
             elif req_type == "DISCOVER":
@@ -176,7 +180,7 @@ def handle_connection(conn, addr):
 
                 with sessions_lock:
                     if sid not in sessions:
-                        send_msg(conn, make_reply(req, "DISCOVER-ERROR", ok=False, code=401, extra={"reason": "unknown session"}))
+                        b_conn.send_msg(make_reply(req, "DISCOVER-ERROR", ok=False, code=401, extra={"reason": "unknown session"})) # <--- CHANGED
                         continue  
 
                 result = []
@@ -191,11 +195,11 @@ def handle_connection(conn, addr):
                                     }) 
 
                 print(f"[DISCOVER] {target_host} has {len(result)} file(s)")
-                send_msg(conn, make_reply(req, "DISCOVER-OK", ok=True, code=200, extra={"files": result}))
+                b_conn.send_msg(make_reply(req, "DISCOVER-OK", ok=True, code=200, extra={"files": result})) # <--- CHANGED
 
             # PING
             elif req_type == "PING":
-                target = req.get("host")
+                target_host = req.get("host")
                 alive = False
                 with sessions_lock:
                     for sid, s in sessions.items():
@@ -205,19 +209,21 @@ def handle_connection(conn, addr):
 
                 code = 200 if alive else 404
                 print(f"[PING] host={target_host}, alive={alive}")
-                send_msg(conn, make_reply(req, "PING-OK", ok=alive, code=code, extra={"alive": alive}))
+                b_conn.send_msg(make_reply(req, "PING-OK", ok=alive, code=code, extra={"alive": alive})) # <--- CHANGED
+            
             # HEARTBEAT
             elif req_type == "HEARTBEAT":
                 sid = req.get("session_id")
                 with sessions_lock:
                     session = sessions.get(sid)
                     if not session:
-                        send_msg(conn, make_reply(req, "HEARTBEAT-ERROR", ok=False, code=404, extra={"reason": "unknown session"}))
+                        b_conn.send_msg(make_reply(req, "HEARTBEAT-ERROR", ok=False, code=404, extra={"reason": "unknown session"})) # <--- CHANGED
                         continue
-                    session["last_seen"] = time.time()
+                    session["expiry"] = time.time() + session["ttl"]
+                    session["last_seen"] = now_iso()
 
                 print(f"[HEARTBEAT] from {session['host']} (sid={sid})")
-                send_msg(conn, make_reply(req, "HEARTBEAT-OK", ok=True, code=200, extra={"ttl": session["ttl"]}))
+                b_conn.send_msg(make_reply(req, "HEARTBEAT-OK", ok=True, code=200, extra={"ttl": session["ttl"]})) # <--- CHANGED
 
             # LEAVE
             elif req_type == "LEAVE":
@@ -226,7 +232,7 @@ def handle_connection(conn, addr):
                 with sessions_lock:
                     session = sessions.pop(sid, None)
                 if not session:
-                    send_msg(conn, make_reply(req, "LEAVE-ERROR", ok=False, code=404, extra={"reason": "unknown session"}))
+                    b_conn.send_msg(make_reply(req, "LEAVE-ERROR", ok=False, code=404, extra={"reason": "unknown session"})) # <--- CHANGED
                     continue
 
                 hostname = session["host"]
@@ -244,7 +250,7 @@ def handle_connection(conn, addr):
 
                 print(f"[LEAVE] {hostname} left, removed {removed} files")
 
-                send_msg(conn, make_reply(req, "LEAVE-OK", ok=True, code=200, extra={"removed": removed}))
+                b_conn.send_msg(make_reply(req, "LEAVE-OK", ok=True, code=200, extra={"removed": removed})) # <--- CHANGED
 
                 broadcast_event({
                     "event": "LEAVE",
@@ -253,16 +259,13 @@ def handle_connection(conn, addr):
                 })
 
             else:
-                send_msg(conn, make_reply(req, "ERROR", ok=False, code=400, extra={"reason":"unsupported type"}))
+                b_conn.send_msg(make_reply(req, "ERROR", ok=False, code=400, extra={"reason":"unsupported type"})) # <--- CHANGED
     except Exception as e:
         print("[SERVER] connection handler error:", e)
     finally:
         with conn_lock:
-            client_conn.discard(conn)
-        try:
-            conn.close()
-        except:
-            pass
+            client_conn.discard(b_conn) # <--- CHANGED
+        b_conn.close() # <--- CHANGED
 
 def start_server(host=SERVER_HOST, port=SERVER_PORT):
     # spawn cleanup thread
