@@ -1,6 +1,5 @@
 # server.py
-# Index server implementing REGISTER, PUBLISH, LOOKUP, DISCOVER, PING, LEAVE, HEARTBEAT.
-# Control plane uses JSON Lines over TCP.
+
 
 import socket
 import threading

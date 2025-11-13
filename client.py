@@ -1,6 +1,5 @@
 # client.py
-# Simple client skeleton for control-plane operations (REGISTER, PUBLISH, LOOKUP, DISCOVER, PING, HEARTBEAT, LEAVE).
-# CLI for testing. Data-plane (GET file) is provided as a simple stub to be extended.
+
 
 import socket
 import threading
