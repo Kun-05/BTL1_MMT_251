@@ -62,7 +62,7 @@ class P2PClientApp:
         self.name_entry = tk.Entry(name_frame, width=20, font=("Consolas", 10),
                                    bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
                                    relief="flat", highlightbackground="#007acc", highlightthickness=1)
-        self.name_entry.insert(0, "client1")
+        self.name_entry.insert(0, "")
         self.name_entry.pack(pady=(5, 0))
 
         # Port field
@@ -74,7 +74,7 @@ class P2PClientApp:
         self.port_entry = tk.Entry(port_frame, width=12, font=("Consolas", 10),
                                    bg="#3c3c3c", fg="#ffffff", insertbackground="#ffffff",
                                    relief="flat", highlightbackground="#007acc", highlightthickness=1)
-        self.port_entry.insert(0, "6001")
+        self.port_entry.insert(0, "")
         self.port_entry.pack(pady=(5, 0))
 
         # Start button
